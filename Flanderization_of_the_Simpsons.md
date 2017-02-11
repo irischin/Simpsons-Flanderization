@@ -4,7 +4,7 @@ Flanderization of Homer Simpsons
 Mean Length of Utterance
 ========================
 
-One particular analysis that I'm interested in is examining Homer's mean length of utterance (MLU). MLU is a common measure used in language acquisition research that is thought to reflect children's linguistic complexity and productivity. It is computed by first calculating the number of morphemes (DEFINE MORPHEME) produced by a child in a speech sample and then dividing that by the total number of utterances produced. This may not be completely appropriate to use for *adult* speech, but just as a first pass analysis, may nonetheless provide some insight. To calculate a character's MLU, I used the **Computerized Language ANanlysis (CLAN)** program. **CLAN** is a tool commonly used by language acquisitionist to analyze children's speech. To learn more about CLAN (and CHILDES), visit this website: <http://childes.psy.cmu.edu/>.
+One particular analysis that I'm interested in is examining Homer's mean length of utterance (MLU). MLU is a common measure used in language acquisition research that is thought to reflect children's linguistic complexity and productivity. It is computed by first calculating the number of morphemes (i.e., the smallest meaningful unit) produced by a child in a speech sample and then dividing that by the total number of utterances produced. This may not be completely appropriate to use for *adult* speech, but just as a first pass analysis, may nonetheless provide some insight. To calculate a character's MLU, I used the **Computerized Language ANanlysis (CLAN)** program. **CLAN** is a tool commonly used by language acquisitionist to analyze children's speech. To learn more about CLAN (and CHILDES), visit this website: <http://childes.psy.cmu.edu/>.
 
 To use CLAN, the speech samples needed to be in organized into individual text files and in a format required by CLAN (i.e., CHAT). Thus, the following steps describe the method through which I generated individual transcript files that were later passed through CLAN.
 
@@ -16,7 +16,11 @@ Simpsons.corpus<-read.table("~/Desktop/Iris Chin/Whole_Simpsons_corpus.txt", hea
 
 Here, I've created a `Character.corpus` function that allows you to extract all utterances of a particular character and in the meantime, also further cleans the transcripts so that they are "CLAN-ready" (e.g., making sure that for each entry, there is only one utterance while still maintaining speaker information. Thus, an entry such as "Homer Simpson: That's my boy. Everything on Santa's Little Helper." was split into two entries (1) "Homer Simpson: That's my boy." (2) "Homer Simpson: Everything on Santa's Little Helper."). This is done for each episode, of each season. Season and Episode information for each entry is still maintained despite the splits. You'll also notice that I have loaded the `magrittr` library as the function utilizes pipes.
 
-The `Character.corpus` function takes three arguments: 1. `corpus`: the corpus that you are working with 2. `simps.char`: the character you are interested in extracting all the utterances for (e.g., "Homer Simpson" or "Lisa Simpson") 3. `simps.char.tag`: the character/speaker tag you would like to use in the transcripts. The CHAT format allows for only one-word name tags. Thus, if you were interested in extracting Homer Simpson utterances, your character tag can be named Homer or HM (anything as long as it is one-word not involving any special characters).
+The `Character.corpus` function takes three arguments:
+
+1. `corpus`: the corpus that you are working with 
+2. `simps.char`: the character you are interested in extracting all the utterances for (e.g., "Homer Simpson" or "Lisa Simpson") 
+3. `simps.char.tag`: the character/speaker tag you would like to use in the transcripts. The CHAT format allows for only one-word name tags. Thus, if you were interested in extracting Homer Simpson utterances, your character tag can be named Homer or HM (anything as long as it is one-word not involving any special characters).
 
 ``` r
 library(magrittr)
@@ -111,7 +115,12 @@ To generate individual transcription files for each season, where each transcrip
 
 The function contains a for-loop that essentially first tries to calculate how many 100-utterance "chunks" there are in each season and then randomly removes *n* utterances, where *n* is number of utterances per season mod 100. The `trans.hding` string essentially contains the beginning header information (e.g., who the speaker is, what role they have, who the "transcriber" is -- here I have used the initials MG) that is required for CHAT and CLAN.
 
-The function then creates 100-utterance chunks for each season and outputs them into text files in a format that is compatible for CLAN. It takes four arguments: 1. `corpus`: the structure containing your corpus / dialogue lines for the particular character 2. `character.name`: the name of the character you are currently analyzing. This should be in title case (e.g., "Homer") 3. `character.role`: this is the role of the character. CHAT has a specified list of possible roles. The relevant ones that you can use include Father, Mother, Child, Sibling, Brother, Sister, Female, and Male. 4. `location`: the location / directory in which you want the transcripts to be outputted.
+The function then creates 100-utterance chunks for each season and outputs them into text files in a format that is compatible for CLAN. It takes four arguments:
+
+1. `corpus`: the structure containing your corpus / dialogue lines for the particular character 
+2. `character.name`: the name of the character you are currently analyzing. This should be in title case (e.g., "Homer") 
+3. `character.role`: this is the role of the character. CHAT has a specified list of possible roles. The relevant ones that you can use include Father, Mother, Child, Sibling, Brother, Sister, Female, and Male. 
+4. `location`: the location / directory in which you want the transcripts to be outputted.
 
 ``` r
 transcript.create<-function(corpus, character.name, character.role, location) {
@@ -204,9 +213,17 @@ We can now plot the average MLU of the different characters across the seasons. 
 Additional Measures of Linguistic Complexity
 ============================================
 
-In addition to MLU, we can also use other measures of linguistic complexity. Here, we'll include four additional measures 1. **Type-Token ratio**, where higher TTR indicates larger amount of lexical variation 2. **Average Word Length** 3. **Average number of syllables per word** 4. **Flesch reading-ease Score** indicates how difficult it is to understand a passage or text. The higher the score, the easier it is to understand the text/passage.
+In addition to MLU, we can also use other measures of linguistic complexity. Here, we'll include four additional measures:
 
-I've written a function called `Char.ling.complex` that calculates these four measures for the character of interest. The function takes two arguments: 1. `char.corpus`: the corpus containing all of the character's lines 2. `character.name`: the name of the character (e.g., "Homer")
+1. **Type-Token ratio**, where higher TTR indicates larger amount of lexical variation 
+2. **Average Word Length** 
+3. **Average number of syllables per word** 
+4. **Flesch reading-ease Score** indicates how difficult it is to understand a passage or text. The higher the score, the easier it is to understand the text/passage.
+
+I've written a function called `Char.ling.complex` that calculates these four measures for the character of interest. The function takes two arguments:
+
+1. `char.corpus`: the corpus containing all of the character's lines 
+2. `character.name`: the name of the character (e.g., "Homer")
 
 To execute the function properly, you will need the `quanteda` package (which helps calculate the number of syllables) and a list of stop words (roughly, common words like 'the', 'of', 'and' which carry little meaning on their own).
 
