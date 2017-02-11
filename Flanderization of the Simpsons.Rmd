@@ -1,0 +1,650 @@
+---
+title: "Flanderization of Homer Simpsons"
+output: github_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+# Mean Length of Utterance
+
+One particular analysis that I'm interested in is examining Homer's mean length of utterance (MLU). MLU is a common measure used in language acquisition research that is thought to reflect children's linguistic complexity and productivity. It is computed by first calculating the number of morphemes (DEFINE MORPHEME) produced by a child in a speech sample and then dividing that by the total number of utterances produced. This may not be completely appropriate to use for *adult* speech, but just as a first pass analysis, may nonetheless provide some insight. To calculate a character's MLU, I used the **Computerized Language ANanlysis (CLAN)** program. **CLAN** is a tool commonly used by language acquisitionist to analyze children's speech. To learn more about CLAN (and CHILDES), visit this website: http://childes.psy.cmu.edu/. 
+
+To use CLAN, the speech samples needed to be in organized into individual text files and in a format required by CLAN (i.e., CHAT). Thus, the following steps describe the method through which I generated individual transcript files that were later passed through CLAN.
+
+I've already extracted the Simpsons corpus from the FXX Simpsons World website (see my Extracting Simpsons Corpus script) so here, I just need to load the corpus: 
+```{r Reading in Simpsons corpus}
+Simpsons.corpus<-read.table("~/Desktop/Iris Chin/Whole_Simpsons_corpus.txt", header=T, sep="\t")
+```
+
+Here, I've created a `Character.corpus` function that allows you to extract all utterances of a particular character and in the meantime, also further cleans the transcripts so that they are "CLAN-ready" (e.g., making sure that for each entry, there is only one utterance while still maintaining speaker information. Thus, an entry such as "Homer Simpson: That's my boy. Everything on Santa's Little Helper." was split into two entries (1) "Homer Simpson: That's my boy." (2) "Homer Simpson: Everything on Santa's Little Helper."). This is done for each episode, of each season. Season and Episode information for each entry is still maintained despite the splits. You'll also notice that I have loaded the `magrittr` library as the function utilizes pipes. 
+
+The `Character.corpus` function takes three arguments:
+1. `corpus`: the corpus that you are working with
+2. `simps.char`: the character you are interested in extracting all the utterances for (e.g., "Homer Simpson" or "Lisa Simpson")
+3. `simps.char.tag`: the character/speaker tag you would like to use in the transcripts. The CHAT format allows for only one-word name tags. Thus, if you were interested in extracting Homer Simpson utterances, your character tag can be named Homer or HM (anything as long as it is one-word not involving any special characters). 
+
+```{r Generating an individual corpus for a particular character}
+library(magrittr)
+
+Character.corpus<-function(corpus,simps.char,simps.char.tag) {
+  Char.fn.ln<-vector()
+  Season.H.n<-vector()
+  Episode.H.n<-vector()
+  for (cur.season.num in 1:length(unique(corpus$Season))) {
+  Season.sub<-subset(corpus, Season==cur.season.num)
+    for (cur.ep.num in 1:length(unique(Season.sub$Episode))) {
+      Episode.sub<-subset(Season.sub, Episode==cur.ep.num)
+      Char.ln<-Episode.sub$Lines[grep(paste("^", simps.char, sep=""), ignore.case = T, Episode.sub$Lines)]
+      Char.ln.1<-Char.ln %>% 
+        gsub("(\\?)+", "\\?___", .) %>%
+        gsub("(\\!)+", "\\!___", .) %>%
+        gsub("(\\.)+", "\\.___", .) %>%
+        strsplit("___", perl=T) %>%
+        unlist()
+      for (z in 1:length(Char.ln.1)) {
+        if (length(grep(paste("^", simps.char, ":", sep=""), ignore.case=T, Char.ln.1[z]))==0) {
+          Char.ln.1[z]<-paste(simps.char, ":\t", Char.ln.1[z], sep="")
+        }
+      }
+      Char.ln.2<-Char.ln.1 %>% 
+        gsub("\t\\s+", "\t", .) %>%
+        gsub("([^\\.\\?\\!\t]$)", "\\1\\.", .) %>%
+        gsub(paste(simps.char, ":", sep=""), paste("*", simps.char.tag, ":", sep=""), ignore.case=T, .)
+      Char.ln.3<-Char.ln.2[grep(paste("(^\\*", simps.char.tag, ":)\t\\w+.*", sep=""), Char.ln.2)]
+      Char.fn.ln<-c(Char.fn.ln, Char.ln.3)
+      Season.H.n<-c(Season.H.n, rep(cur.season.num, length(Char.ln.3)))
+      Episode.H.n<-c(Episode.H.n, rep(cur.ep.num, length(Char.ln.3)))
+    }
+  }
+  Final.corpus<-data.frame(Season=Season.H.n, Episode=Episode.H.n, Lines=Char.fn.ln)
+}
+```
+
+From the `Character.corpus` function, we can then extract specifically Homer's corpus:
+```{r Generating Homers corpus}
+Homer.corpus<-Character.corpus(corpus = Simpsons.corpus, simps.char = "Homer Simpson", simps.char.tag = "HOMER")
+head(Homer.corpus)
+```
+
+Some exploratory analysis looking at how often Homer speaks across the seasons can be done. This will also give us an idea of how much speech we have to work with:
+```{r Exploratory analysis of Homers corpus}
+library(plyr)
+ddply(Homer.corpus, .(Season), summarise, Num.lines=length(Lines))
+```
+
+If you look at the number of utterances in total that is spoken by Homer per season, we actually find that there isn't that much speech to work with. This is especially the case given that, within a season, there is usually between 20-22 episodes. For example, imagine a season had about 700 lines. This would suggest that Homer speaks about 30-35 lines per episode. Although this might be completely reasonable for a 22-minute episode, having such a small speech sample per episode would potentially distort the MLU calculation. Thus, I instead created 100-utterance samples for each season (rather than dividing the speech samples by their respective episodes).
+
+To generate individual transcription files for each season, where each transcription file contains 100 utterances as well as the beginning and ending headers specified by the CHAT format, I created the `transcript.create` function.
+
+The function contains a for-loop that essentially first tries to calculate how many 100-utterance "chunks" there are in each season and then randomly removes *n* utterances, where *n* is number of utterances per season mod 100. The `trans.hding` string essentially contains the beginning header information (e.g., who the speaker is, what role they have, who the "transcriber" is -- here I have used the initials MG) that is required for CHAT and CLAN.
+
+The function then creates 100-utterance chunks for each season and outputs them into text files in a format that is compatible for CLAN. It takes four arguments:
+1. `corpus`: the structure containing your corpus / dialogue lines for the particular character
+2. `character.name`: the name of the character you are currently analyzing. This should be in title case (e.g., "Homer")
+3. `character.role`: this is the role of the character. CHAT has a specified list of possible roles. The relevant ones that you can use include Father, Mother, Child, Sibling, Brother, Sister, Female, and Male.
+4. `location`: the location / directory in which you want the transcripts to be outputted.
+
+```{r Creating transcripts, eval=FALSE}
+transcript.create<-function(corpus, character.name, character.role, location) {
+  for (x in 1:length(unique(corpus$Season))) {
+    Season.a<-subset(corpus, Season==x)
+    if ((length(Season.a$Lines)%%100)==0) {
+      Season.b<-Season.a
+   } else {
+      Season.b<-Season.a[-sample(1:length(Season.a$Lines),length(Season.a$Lines)%%100),]
+    }
+    Season.split<-split(Season.b$Lines, rep(1:(length(Season.b$Lines)/100), each=100))
+    for (y in 1:(length(Season.b$Lines)/100)) {
+      trans.hding<-paste("@Begin", "@Languages:\teng", paste("@Participants:\t", toupper(character.name), " ", character.role, sep=""), paste("@ID:	eng|MG|", character.name, "|||||", character.role, "||", sep=""), sep="\n")
+      Season.split.1<-c(trans.hding, as.character(Season.split[[y]]), "@End")
+      writeLines(Season.split.1, paste(location, "Season", x, "Part", y, ".txt", sep=""))
+    }
+  }
+}
+transcript.create(Homer.corpus, "Homer", "Father", "~/Transcripts/")
+```
+
+Thus far, I've been only focused on Homer's corpus. However, we might want to investigate whether a change occurs with the other family members as well. They can serve as controls -- in that we don't typically talk about, for example, Lisa's Flanderization in terms of her intelligence. Thus, we might expect Lisa's linguistic complexity to stay relatively the same across seasons. It might be also interesting to just compare Homer's linguistic complexity to the other family members to investigate whether he is, at least linguistically speaking, less intelligent.
+
+We therefore would want to create individual transcripts for the other family members (e.g., Marge, Bart, and Lisa) as well. We can reuse our `Character.corpus` function to first extract all the relevant dialogue lines for each of the characters as well as our `transcript.create` function to create the individual 100-utterance transcripts.
+```{r Creating corpus for other family members}
+Marge.corpus<-Character.corpus(corpus = Simpsons.corpus, simps.char = "Marge Simpson", simps.char.tag = "MARGE")
+
+Bart.corpus<-Character.corpus(corpus = Simpsons.corpus, simps.char = "Bart Simpson", simps.char.tag = "BART")
+
+Lisa.corpus<-Character.corpus(corpus = Simpsons.corpus, simps.char = "Lisa Simpson", simps.char.tag = "LISA")
+```
+
+```{r Transcript creating for other family members, eval=FALSE}
+transcript.create(Marge.corpus, "Marge", "Mother", "~/Transcripts/")
+transcript.create(Bart.corpus, "Bart", "Child", "~/Transcripts/")
+transcript.create(Lisa.corpus, "Lisa", "Child", "~/Transcripts/")
+```
+
+For each character, their transcripts were ran through CLAN and a table was generated containing the MLU of each of those transcripts. We can import these tables, create summary tables of the MLU of each season for each character, and then concatentate the four tables together.
+```{r Reading in MLU tables and creating collective MLU table}
+Homer.mlu<-read.table("~/Desktop/Iris Chin/MLU tables/Homer_MLU.txt", header=T, sep="\t")
+Homer.mlu.sum<-ddply(Homer.mlu, .(Season), summarize, Mean_mlu=mean(MLU))
+
+Marge.mlu<-read.table("~/Desktop/Iris Chin/MLU tables/Marge_MLU.txt", header=T, sep="\t")
+Marge.mlu.sum<-ddply(Marge.mlu, .(Season), summarize, Mean_mlu=mean(MLU))
+
+Bart.mlu<-read.table("~/Desktop/Iris Chin/MLU tables/Bart_MLU.txt", header=T, sep="\t")
+Bart.mlu.sum<-ddply(Bart.mlu, .(Season), summarize, Mean_mlu=mean(MLU))
+
+Lisa.mlu<-read.table("~/Desktop/Iris Chin/MLU tables/Lisa_MLU.txt", header=T, sep="\t")
+Lisa.mlu.sum<-ddply(Lisa.mlu, .(Season), summarize, Mean_mlu=mean(MLU))
+
+MLU.sum.all<-join_all(list(Homer.mlu.sum, Marge.mlu.sum, Bart.mlu.sum, Lisa.mlu.sum), by="Season")
+names(MLU.sum.all)[2:5]<-c("Homer", "Marge", "Bart", "Lisa")
+print(MLU.sum.all)
+```
+
+We can now plot the average MLU of the different characters across the seasons.
+```{r Plotting MLU, echo=FALSE, warning=FALSE, fig.align='center', dpi=600}
+library(reshape2)
+library(ggplot2)
+MLU.sum.all.m<-melt(MLU.sum.all, id="Season", value.name="MLU_average", variable.name="Character")
+ggplot(MLU.sum.all.m, aes(x=Season, y=MLU_average, group=Character, colour=Character))+
+  geom_line()+
+  geom_point(size=1)+
+  ylab("Mean Length of Utterance")+
+  scale_y_continuous(limits=c(0,10), breaks=seq(0, 10, 2))+
+  scale_x_continuous(breaks=seq(1, 26, 2))+
+  scale_color_manual(values=c("#FFFFFF", "#83C33F", "#55ABF7", "#DA6901"))+
+  theme(panel.background = element_rect(fill = "#FFD90F", colour="black"),
+        plot.background=element_rect(fill="#FFD90F"), 
+        panel.grid.minor=element_blank(),
+        panel.grid.major=element_blank(),
+        legend.key=element_rect(colour="#FFD90F", fill="#FFD90F"),
+        legend.background=element_rect(fill="#FFD90F"),
+        legend.title=element_text(size=16, face="bold"),
+        legend.text=element_text(size=14),
+        axis.title = element_text(face="bold", size=16),
+        axis.text=element_text(size=14))
+```
+
+#Additional Measures of Linguistic Complexity
+In addition to MLU, we can also use other measures of linguistic complexity. Here, we'll include four additional measures
+1. **Type-Token ratio**, where higher TTR indicates larger amount of lexical variation
+2. **Average Word Length**
+3. **Average number of syllables per word**
+4. **Flesch reading-ease Score** indicates how difficult it is to understand a passage or text. The higher the score, the easier it is to understand the text/passage. 
+
+I've written a function called `Char.ling.complex` that calculates these four measures for the character of interest. The function takes two arguments: 
+1. `char.corpus`: the corpus containing all of the character's lines
+2. `character.name`: the name of the character (e.g., "Homer")
+
+To execute the function properly, you will need the `quanteda` package (which helps calculate the number of syllables) and a list of stop words (roughly, common words like 'the', 'of', 'and' which carry little meaning on their own). 
+
+This will generate the four measures for each episode, of each season.
+
+```{r Complexity Function, message=FALSE, warning=FALSE}
+library(quanteda)
+stop.list<-scan("~/Desktop/Iris Chin/stop_list.txt", what="character", sep=",")
+
+Char.ling.complex<-function(char.corpus, character.name) {
+  Season<-vector()
+  Episode<-vector()
+  Flesch.reading.score<-vector()
+  type.token<-vector()
+  word.length<-vector()
+  num.syll<-vector()
+  #num.syll.na<-vector()
+  for (season.num in 1:length(unique(char.corpus$Season))) {
+    corpus.1<-subset(char.corpus, Season==season.num)
+    corpus.1$Lines.lw<-tolower(gsub(paste("\\*", toupper(character.name), ":\t", sep=""), "", corpus.1$Lines))
+    for (episode.num in 1:length(unique(corpus.1$Episode))) {
+      if (length(subset(corpus.1, Episode==episode.num)$Lines.lw) > 0) {
+        corpus.2<-subset(corpus.1, Episode==episode.num)
+        words.list<-unlist(strsplit(corpus.2$Lines.lw, "(\\s|\\?|\\.|\\!|\\,)+"))
+        words.by.sentences<-length(words.list)/length(corpus.2$Lines.lw)
+        syll.by.words<-(sum(nsyllable((words.list)), na.rm = T))/length(words.list)
+        #num.syll.na.1<-sum(is.na(nsyllable(words.list)))
+        Flesch.reading<-206.835-1.015*words.by.sentences-84.6*syll.by.words
+        
+        #this below looks at the type-token ratio -- here, I've filtered out stopwords (the list was complied mostly from the NLTK package in Python)
+        words.list.2<-words.list[!words.list%in%stop.list]
+        word.table.2<-sort(table(words.list.2), decreasing = T)
+        type.token.1<-length(word.table.2)/length(words.list.2)
+        #this calculates average word length
+        word.length.1<-mean(nchar(words.list.2))
+        #this calculates average number of syllables
+        num.syll.1<-mean(nsyllable(words.list.2), na.rm=T)
+        #to concatenate all the pieces of information
+        Season<-c(Season, season.num)
+        Episode<-c(Episode, episode.num)
+        Flesch.reading.score<-c(Flesch.reading.score, Flesch.reading)
+        type.token<-c(type.token, type.token.1)
+        word.length<-c(word.length, word.length.1)
+        num.syll<-c(num.syll, num.syll.1)
+        #num.syll.na<-c(num.syll.na, num.syll.na.1)
+      }
+    }
+  } 
+  Character.complexity<-data.frame(Season, Episode, Flesch.reading.score, type.token, word.length, num.syll)
+}
+```
+
+We can now calculate these additional four measures for Homer (as well as the other Simpsons family members).
+```{r Complexity for all members}
+Homer.complexity<-Char.ling.complex(char.corpus = Homer.corpus, character.name = "Homer")
+Marge.complexity<-Char.ling.complex(char.corpus = Marge.corpus, character.name = "Marge")
+Bart.complexity<-Char.ling.complex(char.corpus = Bart.corpus, character.name = "Bart")
+Lisa.complexity<-Char.ling.complex(char.corpus = Lisa.corpus, character.name = "Lisa")
+```
+
+For each measure, I'm also going to create a mean score for each season. Then I'll create a plot of each of the those measures.
+
+First, for Homer:
+```{r Homer complexity concat}
+library(plyr)
+Homer.complex.sum<-ddply(Homer.complexity, .(Season), summarise,
+                         Flesch_mean=mean(Flesch.reading.score),
+                         TTR.mean=mean(type.token),
+                         Word.length.mean=mean(word.length),
+                         Num.syll.mean=mean(num.syll))
+print(Homer.complex.sum)
+```
+```{r Homer complexity graph,echo=FALSE, fig.align='center', dpi=600}
+library(ggplot2)
+library(gridExtra)
+
+H.FS<-ggplot(Homer.complex.sum, aes(x=Season, y=Flesch_mean))+
+  geom_line(colour="#FFFFFF")+
+  geom_point(colour="#FFFFFF")+
+  scale_y_continuous(limits=c(0,100), breaks=seq(0, 100, 10))+
+  scale_x_continuous(breaks=seq(1, 26, 2))+
+  ggtitle("Flesch reading-ease Score")+
+  theme(panel.background = element_rect(fill = "#FFD90F", colour="black"),
+        plot.background=element_rect(fill="#FFD90F"), 
+        panel.grid.minor=element_blank(),
+        panel.grid.major=element_blank(),
+        axis.title.x = element_text(size=8),
+        axis.title.y= element_blank(),
+        axis.text=element_text(size=6),
+        plot.title = element_text(hjust = 0.5, size=10, face="bold"))+
+  geom_text(aes(label=ifelse(Flesch_mean==Flesch_mean[1]|Flesch_mean==Flesch_mean[26], round(Flesch_mean,2), ""),hjust=0.5, vjust=1.75), size=2)
+
+H.TTR<-ggplot(Homer.complex.sum, aes(x=Season, y=TTR.mean))+
+  geom_line(colour="#FFFFFF")+
+  geom_point(colour="#FFFFFF")+
+  scale_y_continuous(limits=c(0,1), breaks=seq(0, 1, .10))+
+  scale_x_continuous(breaks=seq(1, 26, 2))+
+  ggtitle("Type-Token Ratio")+
+  theme(panel.background = element_rect(fill = "#FFD90F", colour="black"),
+        plot.background=element_rect(fill="#FFD90F"), 
+        panel.grid.minor=element_blank(),
+        panel.grid.major=element_blank(),
+        axis.title.x = element_text(size=8),
+        axis.title.y= element_blank(),
+        axis.text=element_text(size=6),
+        plot.title = element_text(hjust = 0.5, size=10, face="bold"))+
+  geom_text(aes(label=ifelse(TTR.mean==TTR.mean[1]|TTR.mean==TTR.mean[26], round(TTR.mean,2), ""),hjust=0.5, vjust=1.75), size=2)
+
+H.WL<-ggplot(Homer.complex.sum, aes(x=Season, y=Word.length.mean))+
+  geom_line(colour="#FFFFFF")+
+  geom_point(colour="#FFFFFF")+
+  scale_y_continuous(limits=c(0,6), breaks=seq(0, 6, 0.5))+
+  scale_x_continuous(breaks=seq(1, 26, 2))+
+  ggtitle("Average Word Length")+
+  theme(panel.background = element_rect(fill = "#FFD90F", colour="black"),
+        plot.background=element_rect(fill="#FFD90F"), 
+        panel.grid.minor=element_blank(),
+        panel.grid.major=element_blank(),
+        axis.title.x = element_text(size=8),
+        axis.title.y= element_blank(),
+        axis.text=element_text(size=6),
+        plot.title = element_text(hjust = 0.5, size=10, face="bold"))+
+  geom_text(aes(label=ifelse(Word.length.mean==Word.length.mean[1]|Word.length.mean==Word.length.mean[26], round(Word.length.mean,2), ""),hjust=0.5, vjust=1.75), size=2)
+
+H.NS<-ggplot(Homer.complex.sum, aes(x=Season, y=Num.syll.mean))+
+  geom_line(colour="#FFFFFF")+
+  geom_point(colour="#FFFFFF")+
+  scale_y_continuous(limits=c(0,1.8), breaks=seq(0, 1.8, 0.2))+
+  scale_x_continuous(breaks=seq(1, 26, 2))+
+  ggtitle("Average Number of Syllables per Word")+
+  theme(panel.background = element_rect(fill = "#FFD90F", colour="black"),
+        plot.background=element_rect(fill="#FFD90F"), 
+        panel.grid.minor=element_blank(),
+        panel.grid.major=element_blank(),
+        axis.title.x = element_text(size=8),
+        axis.title.y= element_blank(),
+        axis.text=element_text(size=6),
+        plot.title = element_text(hjust = 0.5, size=10, face="bold"))+
+  geom_text(aes(label=ifelse(Num.syll.mean==Num.syll.mean[1]|Num.syll.mean==Num.syll.mean[26], round(Num.syll.mean,2), ""),hjust=0.5, vjust=1.75), size=2)
+
+grid.arrange(H.FS, H.TTR, H.WL, H.NS, ncol=2)
+```
+
+Then for Marge:
+```{r Marge complexity concat}
+Marge.complex.sum<-ddply(Marge.complexity, .(Season), summarise,
+                         Flesch_mean=mean(Flesch.reading.score),
+                         TTR.mean=mean(type.token),
+                         Word.length.mean=mean(word.length),
+                         Num.syll.mean=mean(num.syll))
+print(Marge.complex.sum)
+```
+```{r Marge complexity graph, echo=F, fig.align='center', dpi=600}
+M.FS<-ggplot(Marge.complex.sum, aes(x=Season, y=Flesch_mean))+
+  geom_line(colour="#83C33F")+
+  geom_point(colour="#83C33F")+
+  scale_y_continuous(limits=c(0,100), breaks=seq(0, 100, 10))+
+  scale_x_continuous(breaks=seq(1, 26, 2))+
+  ggtitle("Flesch reading-ease Score")+
+  theme(panel.background = element_rect(fill = "#FFD90F", colour="black"),
+        plot.background=element_rect(fill="#FFD90F"), 
+        panel.grid.minor=element_blank(),
+        panel.grid.major=element_blank(),
+        axis.title.x = element_text(size=8),
+        axis.title.y= element_blank(),
+        axis.text=element_text(size=6),
+        plot.title = element_text(hjust = 0.5, size=10, face="bold"))+
+  geom_text(aes(label=ifelse(Flesch_mean==Flesch_mean[1]|Flesch_mean==Flesch_mean[26], round(Flesch_mean,2), ""),hjust=0.5, vjust=1.75), size=2)
+
+M.TTR<-ggplot(Marge.complex.sum, aes(x=Season, y=TTR.mean))+
+  geom_line(colour="#83C33F")+
+  geom_point(colour="#83C33F")+
+  scale_y_continuous(limits=c(0,1), breaks=seq(0, 1, .10))+
+  scale_x_continuous(breaks=seq(1, 26, 2))+
+  ggtitle("Type-Token Ratio")+
+  theme(panel.background = element_rect(fill = "#FFD90F", colour="black"),
+        plot.background=element_rect(fill="#FFD90F"), 
+        panel.grid.minor=element_blank(),
+        panel.grid.major=element_blank(),
+        axis.title.x = element_text(size=8),
+        axis.title.y= element_blank(),
+        axis.text=element_text(size=6),
+        plot.title = element_text(hjust = 0.5, size=10, face="bold"))+
+  geom_text(aes(label=ifelse(TTR.mean==TTR.mean[1]|TTR.mean==TTR.mean[26], round(TTR.mean,2), ""),hjust=0.5, vjust=1.75), size=2)
+
+M.WL<-ggplot(Marge.complex.sum, aes(x=Season, y=Word.length.mean))+
+  geom_line(colour="#83C33F")+
+  geom_point(colour="#83C33F")+
+  scale_y_continuous(limits=c(0,6), breaks=seq(0, 6, 0.5))+
+  scale_x_continuous(breaks=seq(1, 26, 2))+
+  ggtitle("Average Word Length")+
+  theme(panel.background = element_rect(fill = "#FFD90F", colour="black"),
+        plot.background=element_rect(fill="#FFD90F"), 
+        panel.grid.minor=element_blank(),
+        panel.grid.major=element_blank(),
+        axis.title.x = element_text(size=8),
+        axis.title.y= element_blank(),
+        axis.text=element_text(size=6),
+        plot.title = element_text(hjust = 0.5, size=10, face="bold"))+
+  geom_text(aes(label=ifelse(Word.length.mean==Word.length.mean[1]|Word.length.mean==Word.length.mean[26], round(Word.length.mean,2), ""),hjust=0.5, vjust=1.75), size=2)
+
+M.NS<-ggplot(Marge.complex.sum, aes(x=Season, y=Num.syll.mean))+
+  geom_line(colour="#83C33F")+
+  geom_point(colour="#83C33F")+
+  scale_y_continuous(limits=c(0,1.8), breaks=seq(0, 1.8, 0.2))+
+  scale_x_continuous(breaks=seq(1, 26, 2))+
+  ggtitle("Average Number of Syllables per Word")+
+  theme(panel.background = element_rect(fill = "#FFD90F", colour="black"),
+        plot.background=element_rect(fill="#FFD90F"), 
+        panel.grid.minor=element_blank(),
+        panel.grid.major=element_blank(),
+        axis.title.x = element_text(size=8),
+        axis.title.y= element_blank(),
+        axis.text=element_text(size=6),
+        plot.title = element_text(hjust = 0.5, size=10, face="bold"))+
+  geom_text(aes(label=ifelse(Num.syll.mean==Num.syll.mean[1]|Num.syll.mean==Num.syll.mean[26], round(Num.syll.mean,2), ""),hjust=0.5, vjust=1.75), size=2)
+
+grid.arrange(M.FS, M.TTR, M.WL, M.NS, ncol=2)
+```
+
+Then for Bart:
+```{r Bart complexity cat}
+Bart.complex.sum<-ddply(Bart.complexity, .(Season), summarise,
+                         Flesch_mean=mean(Flesch.reading.score),
+                         TTR.mean=mean(type.token),
+                         Word.length.mean=mean(word.length),
+                         Num.syll.mean=mean(num.syll))
+print(Bart.complex.sum)
+```
+```{r Bart complexity graph, echo=F, fig.align='center', dpi=600}
+B.FS<-ggplot(Bart.complex.sum, aes(x=Season, y=Flesch_mean))+
+  geom_line(colour="#55ABF7")+
+  geom_point(colour="#55ABF7")+
+  scale_y_continuous(limits=c(0,100), breaks=seq(0, 100, 10))+
+  scale_x_continuous(breaks=seq(1, 26, 2))+
+  ggtitle("Flesch reading-ease Score")+
+  theme(panel.background = element_rect(fill = "#FFD90F", colour="black"),
+        plot.background=element_rect(fill="#FFD90F"), 
+        panel.grid.minor=element_blank(),
+        panel.grid.major=element_blank(),
+        axis.title.x = element_text(size=8),
+        axis.title.y= element_blank(),
+        axis.text=element_text(size=6),
+        plot.title = element_text(hjust = 0.5, size=10, face="bold"))+
+  geom_text(aes(label=ifelse(Flesch_mean==Flesch_mean[1]|Flesch_mean==Flesch_mean[26], round(Flesch_mean,2), ""),hjust=0.5, vjust=1.75), size=2)
+
+B.TTR<-ggplot(Bart.complex.sum, aes(x=Season, y=TTR.mean))+
+  geom_line(colour="#55ABF7")+
+  geom_point(colour="#55ABF7")+
+  scale_y_continuous(limits=c(0,1), breaks=seq(0, 1, .10))+
+  scale_x_continuous(breaks=seq(1, 26, 2))+
+  ggtitle("Type-Token Ratio")+
+  theme(panel.background = element_rect(fill = "#FFD90F", colour="black"),
+        plot.background=element_rect(fill="#FFD90F"), 
+        panel.grid.minor=element_blank(),
+        panel.grid.major=element_blank(),
+        axis.title.x = element_text(size=8),
+        axis.title.y= element_blank(),
+        axis.text=element_text(size=6),
+        plot.title = element_text(hjust = 0.5, size=10, face="bold"))+
+  geom_text(aes(label=ifelse(TTR.mean==TTR.mean[1]|TTR.mean==TTR.mean[26], round(TTR.mean,2), ""),hjust=0.5, vjust=1.75), size=2)
+
+B.WL<-ggplot(Bart.complex.sum, aes(x=Season, y=Word.length.mean))+
+  geom_line(colour="#55ABF7")+
+  geom_point(colour="#55ABF7")+
+  scale_y_continuous(limits=c(0,6), breaks=seq(0, 6, 0.5))+
+  scale_x_continuous(breaks=seq(1, 26, 2))+
+  ggtitle("Average Word Length")+
+  theme(panel.background = element_rect(fill = "#FFD90F", colour="black"),
+        plot.background=element_rect(fill="#FFD90F"), 
+        panel.grid.minor=element_blank(),
+        panel.grid.major=element_blank(),
+        axis.title.x = element_text(size=8),
+        axis.title.y= element_blank(),
+        axis.text=element_text(size=6),
+        plot.title = element_text(hjust = 0.5, size=10, face="bold"))+
+  geom_text(aes(label=ifelse(Word.length.mean==Word.length.mean[1]|Word.length.mean==Word.length.mean[26], round(Word.length.mean,2), ""),hjust=0.5, vjust=1.75), size=2)
+
+B.NS<-ggplot(Bart.complex.sum, aes(x=Season, y=Num.syll.mean))+
+  geom_line(colour="#55ABF7")+
+  geom_point(colour="#55ABF7")+
+  scale_y_continuous(limits=c(0,1.8), breaks=seq(0, 1.8, 0.2))+
+  scale_x_continuous(breaks=seq(1, 26, 2))+
+  ggtitle("Average Number of Syllables per Word")+
+  theme(panel.background = element_rect(fill = "#FFD90F", colour="black"),
+        plot.background=element_rect(fill="#FFD90F"), 
+        panel.grid.minor=element_blank(),
+        panel.grid.major=element_blank(),
+        axis.title.x = element_text(size=8),
+        axis.title.y= element_blank(),
+        axis.text=element_text(size=6),
+        plot.title = element_text(hjust = 0.5, size=10, face="bold"))+
+  geom_text(aes(label=ifelse(Num.syll.mean==Num.syll.mean[1]|Num.syll.mean==Num.syll.mean[26], round(Num.syll.mean,2), ""),hjust=0.5, vjust=1.75), size=2)
+
+grid.arrange(B.FS, B.TTR, B.WL, B.NS, ncol=2)
+```
+
+Finally, for Lisa:
+```{r Lisa complexity cat}
+Lisa.complex.sum<-ddply(Lisa.complexity, .(Season), summarise,
+                         Flesch_mean=mean(Flesch.reading.score),
+                         TTR.mean=mean(type.token),
+                         Word.length.mean=mean(word.length),
+                         Num.syll.mean=mean(num.syll))
+print(Lisa.complex.sum)
+```
+```{r Lisa complexity graph, echo=F, fig.align='center', dpi=600}
+L.FS<-ggplot(Lisa.complex.sum, aes(x=Season, y=Flesch_mean))+
+  geom_line(colour="#DA6901")+
+  geom_point(colour="#DA6901")+
+  scale_y_continuous(limits=c(0,100), breaks=seq(0, 100, 10))+
+  scale_x_continuous(breaks=seq(1, 26, 2))+
+  ggtitle("Flesch reading-ease Score")+
+  theme(panel.background = element_rect(fill = "#FFD90F", colour="black"),
+        plot.background=element_rect(fill="#FFD90F"), 
+        panel.grid.minor=element_blank(),
+        panel.grid.major=element_blank(),
+        axis.title.x = element_text(size=8),
+        axis.title.y= element_blank(),
+        axis.text=element_text(size=6),
+        plot.title = element_text(hjust = 0.5, size=10, face="bold"))+
+  geom_text(aes(label=ifelse(Flesch_mean==Flesch_mean[1]|Flesch_mean==Flesch_mean[26], round(Flesch_mean,2), ""),hjust=0.5, vjust=1.75), size=2)
+
+L.TTR<-ggplot(Lisa.complex.sum, aes(x=Season, y=TTR.mean))+
+  geom_line(colour="#DA6901")+
+  geom_point(colour="#DA6901")+
+  scale_y_continuous(limits=c(0,1), breaks=seq(0, 1, .10))+
+  scale_x_continuous(breaks=seq(1, 26, 2))+
+  ggtitle("Type-Token Ratio")+
+  theme(panel.background = element_rect(fill = "#FFD90F", colour="black"),
+        plot.background=element_rect(fill="#FFD90F"), 
+        panel.grid.minor=element_blank(),
+        panel.grid.major=element_blank(),
+        axis.title.x = element_text(size=8),
+        axis.title.y= element_blank(),
+        axis.text=element_text(size=6),
+        plot.title = element_text(hjust = 0.5, size=10, face="bold"))+
+  geom_text(aes(label=ifelse(TTR.mean==TTR.mean[1]|TTR.mean==TTR.mean[26], round(TTR.mean,2), ""),hjust=0.5, vjust=1.75), size=2)
+
+L.WL<-ggplot(Lisa.complex.sum, aes(x=Season, y=Word.length.mean))+
+  geom_line(colour="#DA6901")+
+  geom_point(colour="#DA6901")+
+  scale_y_continuous(limits=c(0,6), breaks=seq(0, 6, 0.5))+
+  scale_x_continuous(breaks=seq(1, 26, 2))+
+  ggtitle("Average Word Length")+
+  theme(panel.background = element_rect(fill = "#FFD90F", colour="black"),
+        plot.background=element_rect(fill="#FFD90F"), 
+        panel.grid.minor=element_blank(),
+        panel.grid.major=element_blank(),
+        axis.title.x = element_text(size=8),
+        axis.title.y= element_blank(),
+        axis.text=element_text(size=6),
+        plot.title = element_text(hjust = 0.5, size=10, face="bold"))+
+  geom_text(aes(label=ifelse(Word.length.mean==Word.length.mean[1]|Word.length.mean==Word.length.mean[26], round(Word.length.mean,2), ""),hjust=0.5, vjust=1.75), size=2)
+
+
+L.NS<-ggplot(Lisa.complex.sum, aes(x=Season, y=Num.syll.mean))+
+  geom_line(colour="#DA6901")+
+  geom_point(colour="#DA6901")+
+  scale_y_continuous(limits=c(0,1.8), breaks=seq(0, 1.8, 0.2))+
+  scale_x_continuous(breaks=seq(1, 26, 2))+
+  ggtitle("Average Number of Syllables per Word")+
+  theme(panel.background = element_rect(fill = "#FFD90F", colour="black"),
+        plot.background=element_rect(fill="#FFD90F"), 
+        panel.grid.minor=element_blank(),
+        panel.grid.major=element_blank(),
+        axis.title.x = element_text(size=8),
+        axis.title.y= element_blank(),
+        axis.text=element_text(size=6),
+        plot.title = element_text(hjust = 0.5, size=10, face="bold"))+
+  geom_text(aes(label=ifelse(Num.syll.mean==Num.syll.mean[1]|Num.syll.mean==Num.syll.mean[26], round(Num.syll.mean,2), ""),hjust=0.5, vjust=1.75), size=2)
+
+grid.arrange(L.FS, L.TTR, L.WL, L.NS, ncol=2)
+```
+
+We can also create a single group of plots containing all members simultaneously
+```{r Complexity all members, echo=F, fig.align='center', dpi=600}
+#Flesch reading score
+Flesch_mean.all<-data.frame(Season=Homer.complex.sum$Season, Homer=Homer.complex.sum$Flesch_mean, Marge=Marge.complex.sum$Flesch_mean, Bart=Bart.complex.sum$Flesch_mean, Lisa=Lisa.complex.sum$Flesch_mean)
+
+library(reshape2)
+Flesch_mean.all.l<-melt(Flesch_mean.all, id="Season", variable.name="Character", value.name="Flesch")
+
+ALL.FS<-ggplot(Flesch_mean.all.l, aes(x=Season, y=Flesch, group=Character, colour=Character))+
+  geom_line()+
+  geom_point()+
+  scale_y_continuous(limits=c(0,100), breaks=seq(0, 100, 10))+
+  scale_x_continuous(breaks=seq(1, 26, 2))+
+  scale_color_manual(values=c("#FFFFFF", "#83C33F", "#55ABF7", "#DA6901"))+
+  ggtitle("Flesch reading-ease Score")+
+  theme(panel.background = element_rect(fill = "#FFD90F", colour="black"),
+        plot.background=element_rect(fill="#FFD90F"), 
+        panel.grid.minor=element_blank(),
+        panel.grid.major=element_blank(),
+        legend.position="none",
+        axis.title.x = element_text(size=8),
+        axis.title.y= element_blank(),
+        axis.text=element_text(size=6),
+        plot.title = element_text(hjust = 0.5, size=10, face="bold"))
+
+#TTR
+TTR_mean.all<-data.frame(Season=Homer.complex.sum$Season, Homer=Homer.complex.sum$TTR.mean, Marge=Marge.complex.sum$TTR.mean, Bart=Bart.complex.sum$TTR.mean, Lisa=Lisa.complex.sum$TTR.mean)
+
+TTR_mean.all.l<-melt(TTR_mean.all, id="Season", variable.name="Character", value.name="TTR")
+
+ALL.TTR<-ggplot(TTR_mean.all.l, aes(x=Season, y=TTR, group=Character, colour=Character))+
+  geom_line()+
+  geom_point()+
+  scale_y_continuous(limits=c(0,1), breaks=seq(0, 1, .10))+
+  scale_x_continuous(breaks=seq(1, 26, 2))+
+  ggtitle("Type-Token Ratio")+
+  scale_color_manual(values=c("#FFFFFF", "#83C33F", "#55ABF7", "#DA6901"))+
+  theme(panel.background = element_rect(fill = "#FFD90F", colour="black"),
+        plot.background=element_rect(fill="#FFD90F"), 
+        panel.grid.minor=element_blank(),
+        panel.grid.major=element_blank(),
+        legend.position="none",
+        axis.title.x = element_text(size=8),
+        axis.title.y= element_blank(),
+        axis.text=element_text(size=6),
+        plot.title = element_text(hjust = 0.5, size=10, face="bold"))
+
+#Word Length
+WL_mean.all<-data.frame(Season=Homer.complex.sum$Season, Homer=Homer.complex.sum$Word.length.mean, Marge=Marge.complex.sum$Word.length.mean, Bart=Bart.complex.sum$Word.length.mean, Lisa=Lisa.complex.sum$Word.length.mean)
+
+WL_mean.all.l<-melt(WL_mean.all, id="Season", variable.name="Character", value.name="Word_Length")
+
+ALL.WL<-ggplot(WL_mean.all.l, aes(x=Season, y=Word_Length, group=Character, colour=Character))+
+  geom_line()+
+  geom_point()+
+  scale_y_continuous(limits=c(0,6), breaks=seq(0, 6, 0.5))+
+  scale_x_continuous(breaks=seq(1, 26, 2))+
+  ggtitle("Average Word Length")+
+  scale_color_manual(values=c("#FFFFFF", "#83C33F", "#55ABF7", "#DA6901"))+
+  theme(panel.background = element_rect(fill = "#FFD90F", colour="black"),
+        plot.background=element_rect(fill="#FFD90F"), 
+        panel.grid.minor=element_blank(),
+        panel.grid.major=element_blank(),
+        legend.position="none",
+        axis.title.x = element_text(size=8),
+        axis.title.y= element_blank(),
+        axis.text=element_text(size=6),
+        plot.title = element_text(hjust = 0.5, size=10, face="bold"))
+
+#num syllable
+NS_mean.all<-data.frame(Season=Homer.complex.sum$Season, Homer=Homer.complex.sum$Num.syll.mean, Marge=Marge.complex.sum$Num.syll.mean, Bart=Bart.complex.sum$Num.syll.mean, Lisa=Lisa.complex.sum$Num.syll.mean)
+
+NS_mean.all.l<-melt(NS_mean.all, id="Season", variable.name="Character", value.name="Num_Syllable")
+
+ALL.NS<-ggplot(NS_mean.all.l, aes(x=Season, y=Num_Syllable, group=Character, colour=Character))+
+  geom_line()+
+  geom_point()+
+  scale_y_continuous(limits=c(0,1.8), breaks=seq(0, 1.8, 0.2))+
+  scale_x_continuous(breaks=seq(1, 26, 2))+
+  ggtitle("Average Number of Syllables per Word")+
+  scale_color_manual(values=c("#FFFFFF", "#83C33F", "#55ABF7", "#DA6901"))+
+  theme(panel.background = element_rect(fill = "#FFD90F", colour="black"),
+        plot.background=element_rect(fill="#FFD90F"), 
+        panel.grid.minor=element_blank(),
+        panel.grid.major=element_blank(),
+        legend.direction = "horizontal",
+        legend.position=c(0.6, .15),
+        legend.key=element_rect(colour="#FFD90F", fill="#FFD90F"),
+        legend.background=element_rect(fill="#FFD90F"),
+        legend.title=element_blank(),
+        legend.text=element_text(size=6),
+        axis.title.x = element_text(size=8),
+        axis.title.y= element_blank(),
+        axis.text=element_text(size=6),
+        plot.title = element_text(hjust = 0.5, size=10, face="bold"))
+
+grid.arrange(ALL.FS, ALL.TTR, ALL.WL, ALL.NS, ncol=2)
+```
