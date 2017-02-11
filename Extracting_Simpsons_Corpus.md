@@ -21,7 +21,14 @@ eplink<-simpsoneplist %>%
   html_nodes(".share-button")
 ```
 
-For each episode, I extracted information regarding: a) the **Season number** it is in, b) its **Episode Number** (here I'm just assigning the episode number sequentially rather than using a production code), c) its **Episode name**, and d) the hyperlink to the episode itself. I then concatenated the information into a data.frame:
+For each episode, I extracted information regarding:
+
+1. the **Season number** it is in
+2. its **Episode Number** (here I'm just assigning the episode number sequentially rather than using a production code) 
+3. its **Episode name** 
+4. the hyperlink to the episode itself 
+
+I then concatenated the information into a data.frame:
 
 ``` r
 Season.num<-as.numeric(gsub(".+data-season-number=\"(\\d+)\".+", "\\1", eplink))
@@ -32,10 +39,17 @@ ep.df.link<-data.frame(Season=Season.num, Episode=Ep.num, Ep.Name=Ep.name, Ep.li
 head(ep.df.link)
 ```
 
-After obtaining the relevant information for each episode, I then did the following for each episode: \* access and import the episode's html file \* extract relevant html code containing only dialogue information (they are located under the "script-message" attributes, in &lt;p&gt; tags) \* extract the actual dialogue embedded in the &lt;p&gt; tags \* do some preliminary cleaning, in which only dialogue containing speech information is included (so anything that is sung, which is delineated with "(SINGING)" in the script/transcription, is excluded) \* after extracting the relevant dialogue for the particular episode, I concatenated all those lines into a larger vector containing all the dialogue that has thus far been extracted from other episodes \* to ensure that information regarding what season and episode number the lines come from is not lost, I also updated vectors with the Season and Episode information for each line of dialogue extracted (i.e., if the episode contained 100 lines of dialogue, the Season and Episode number will each be repeated 100 times and concatenated with larger vectors containing those pieces of information for all the episodes that have been analyzed thus far)
+After obtaining the relevant information for each episode, I then did the following for each episode: 
+
+* access and import the episode's html file 
+* extract relevant html code containing only dialogue information (they are located under the "script-message" attributes, in &lt;p&gt; tags) 
+* extract the actual dialogue embedded in the &lt;p&gt; tags 
+* do some preliminary cleaning, in which only dialogue containing speech information is included (so anything that is sung, which is delineated with "(SINGING)" in the script/transcription, is excluded) 
+* after extracting the relevant dialogue for the particular episode, I concatenated all those lines into a larger vector containing all the dialogue that has thus far been extracted from other episodes 
+* to ensure that information regarding what season and episode number the lines come from is not lost, I also updated vectors with the Season and Episode information for each line of dialogue extracted (i.e., if the episode contained 100 lines of dialogue, the Season and Episode number will each be repeated 100 times and concatenated with larger vectors containing those pieces of information for all the episodes that have been analyzed thus far)
 
 This was all implemented with a loop, where each episode underwent the described above extraction and cleaning. After the loop completed, there were three vectors containing the relevant information for each line of dialogue:
-<div>
+
 1.  `Season.n`: containing the season number information
 2.  `Episode.n`: containing the episode number information
 3.  `Lines`: containing the actual line of dialogue (which included the speaker information)
