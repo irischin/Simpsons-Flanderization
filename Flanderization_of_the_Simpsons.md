@@ -249,7 +249,6 @@ Char.ling.complex<-function(char.corpus, character.name) {
         words.list<-unlist(strsplit(corpus.2$Lines.lw, "(\\s|\\?|\\.|\\!|\\,)+"))
         words.by.sentences<-length(words.list)/length(corpus.2$Lines.lw)
         syll.by.words<-(sum(nsyllable((words.list)), na.rm = T))/length(words.list)
-        #num.syll.na.1<-sum(is.na(nsyllable(words.list)))
         Flesch.reading<-206.835-1.015*words.by.sentences-84.6*syll.by.words
         
         #this below looks at the type-token ratio -- here, I've filtered out stopwords (the list was complied mostly from the NLTK package in Python)
