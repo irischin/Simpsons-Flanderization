@@ -240,7 +240,6 @@ Char.ling.complex<-function(char.corpus, character.name) {
   type.token<-vector()
   word.length<-vector()
   num.syll<-vector()
-  #num.syll.na<-vector()
   for (season.num in 1:length(unique(char.corpus$Season))) {
     corpus.1<-subset(char.corpus, Season==season.num)
     corpus.1$Lines.lw<-tolower(gsub(paste("\\*", toupper(character.name), ":\t", sep=""), "", corpus.1$Lines))
@@ -268,7 +267,6 @@ Char.ling.complex<-function(char.corpus, character.name) {
         type.token<-c(type.token, type.token.1)
         word.length<-c(word.length, word.length.1)
         num.syll<-c(num.syll, num.syll.1)
-        #num.syll.na<-c(num.syll.na, num.syll.na.1)
       }
     }
   } 
