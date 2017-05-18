@@ -12,3 +12,5 @@ This directory contains the code and data for my attempt at evaluating whether H
 | Whole.Simpsons.corpus.txt            | Contains the corpus that I was able to scrape off of the FXX website (I was able to get scripts up to only Season 26) |
 | Flanderization\_of\_the\_Simpsons.md | Describes and generates the results of the different analyses of linguistic complexity                                |
 | stop\_list                           | Contains the list of stop words that I used in my analyses                                                            |
+
+For a more detailed write-up, please visit: https://irischinresearch.wordpress.com/2017/02/12/the-flanderization-of-homer-simpson/
